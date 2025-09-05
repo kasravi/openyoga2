@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Yoga Audio Flow</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- React (no build step) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Add Babel so we can write JSX without a build step -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- onnxruntime-web for in-browser ONNX inference (future local Kokoro) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Core modules -->
+  <script src="src/audio/TTSService.js"></script>
+  <script src="src/core/PoseDatabase.js"></script>
+  <script src="src/core/FlowEngine.js"></script>
+
+  <!-- Rewrite the app script using JSX for readability -->
+  <script type="text/babel" data-presets="react">
+    function App(){
+      const [state, setState] = React.useState({});
+      const [engine, setEngine] = React.useState(null);
+      const [poseDb, setPoseDb] = React.useState(null);
+      const [flowNames, setFlowNames] = React.useState(["BoatHalf","BoatFull","BoundAngle"]);
+      const [breaths, setBreaths] = React.useState(3);
+      const [breathSec, setBreathSec] = React.useState(4);
+
+      React.useEffect(() => {
+        const db = new window.PoseDatabase('poses.json');
+        const tts = new window.TTSService({ rate: 1.0 });
+        const eng = new window.FlowEngine({ tts, poseDb: db, onState: setState });
+        setPoseDb(db);
+        setEngine(eng);
+        db.load().catch(console.error);
+      }, []);
+
+      const start = () => {
+        if (!engine) return;
+        engine.setHoldBreaths(parseInt(breaths)||3);
+        engine.setBreathSeconds(parseInt(breathSec)||4);
+        engine.loadFlow(flowNames);
+        engine.start();
+      };
+      const pause = () => engine && engine.pause();
+      const resume = () => engine && engine.resume();
+      const stop = () => engine && engine.stop();
+      const skip = () => engine && engine.skip();
+
+      const current = state.currentPose || '-';
+      const progress = state.total ? `${(state.index+1)||0} / ${state.total}` : '';
+
+      return (
+        <div className="container" style={{ padding: 16, maxWidth: 720, margin: '0 auto' }}>
+          <h1>Yoga Audio Flow</h1>
+
+          <div>
+            <label>Flow poses (comma-separated names): </label>
+            <input
+              style={{ width: '100%' }}
+              value={flowNames.join(', ')}
+              onChange={(ev) => setFlowNames(ev.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+            />
+          </div>
+
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={start}>Start</button>
+            <button onClick={pause} disabled={!state.isRunning || state.isPaused}>Pause</button>
+            <button onClick={resume} disabled={!state.isRunning || !state.isPaused}>Resume</button>
+            <button onClick={skip} disabled={!state.isRunning}>Skip</button>
+            <button onClick={stop}>Stop</button>
+          </div>
+
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <label>Breaths per pose:</label>
+            <input type="number" min={1} value={breaths} onChange={(ev) => setBreaths(ev.target.value)} />
+            <label>Seconds per breath:</label>
+            <input type="number" min={1} value={breathSec} onChange={(ev) => setBreathSec(ev.target.value)} />
+          </div>
+
+          <hr />
+
+          <div>
+            <div>Current: {current}</div>
+            <div>Progress: {progress}</div>
+            <div>Remaining hold: {Math.ceil((state.remainingMs||0)/1000)}s</div>
+          </div>
+
+          <p style={{ marginTop: 16, color: '#666' }}>
+            Tip: Ensure your browser allows audio and speech synthesis.
+          </p>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

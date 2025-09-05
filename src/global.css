@@ -1,0 +1,89 @@
+body { 
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; 
+  margin: 0;
+  padding: 0;
+  line-height: 1.4; 
+  background: #f8f9fa;
+}
+
+.app { 
+  min-height: 100vh;
+}
+
+.app h1 { margin-top: 0; }
+button { cursor: pointer; }
+textarea { font-family: inherit; font-size: 1rem; padding: .5rem; }
+.meta { font-size: .85rem; opacity: .7; }
+ul { padding-left: 1.1rem; }
+
+/* Flow session styles */
+.flow-session {
+  padding: 2rem;
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.session-header h2 {
+  font-size: 2rem;
+  color: #2c3e50;
+  margin-bottom: 1rem;
+}
+
+.session-header p {
+  font-size: 1.2rem;
+  color: #7f8c8d;
+  margin-bottom: 2rem;
+}
+
+.end-session-btn {
+  background: #e74c3c;
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: background 0.3s ease;
+}
+
+.end-session-btn:hover {
+  background: #c0392b;
+}
+
+/* Ready state styles */
+.ready-message {
+  font-size: 1.1rem;
+  color: #27ae60;
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.ready-instruction {
+  font-size: 1rem;
+  color: #34495e;
+  margin-bottom: 2rem;
+  background: #ecf0f1;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+}
+
+.ready-btn {
+  background: #27ae60;
+  color: white;
+  border: none;
+  padding: 1.2rem 2.5rem;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-right: 1rem;
+  margin-bottom: 1rem;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(39, 174, 96, 0.3);
+}
+
+.ready-btn:hover {
+  background: #2ecc71;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(39, 174, 96, 0.4);
+}
