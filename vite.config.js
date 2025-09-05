@@ -19,9 +19,9 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    outDir: 'build',
     rollupOptions: {
       output: {
-        // Remove format to let Vite handle it automatically
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]'
