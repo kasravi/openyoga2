@@ -17,7 +17,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Ensure workers are emitted properly
+        format: 'esm',
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]'
