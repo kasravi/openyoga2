@@ -1,0 +1,30 @@
+{
+  "name": "yoga",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kasravi/openyoga2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kasravi/openyoga2/issues"
+  },
+  "homepage": "https://github.com/kasravi/openyoga2#readme",
+  "description": "",
+  "devDependencies": {
+    "vite": "^8.0.10"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "kokoro-js": "^1.2.1"
+  }
+}

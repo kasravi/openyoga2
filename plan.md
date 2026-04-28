@@ -1,10 +1,5 @@
 # Yoga Voice Assistant
 
-## ✅ Completed Features
-- **Basic TTS Integration**: Kokoro web ONNX model for text-to-speech ✅
-- **Voice Command Recognition**: Speech-to-text with command parsing ✅
-- **Basic App Structure**: React components and yoga flow logic ✅
-
 ## description 
 an audio only yoga instructor, that can dynamically change its course of action throught the session. it should be calming, and positive.
 
@@ -22,7 +17,7 @@ an audio only yoga instructor, that can dynamically change its course of action 
    3. user can ask to help make the pose easier or harder 
    4. user can ask to point out the muscles user should be mindful about
    5. user can ask to pause, continue, skip, or terminate the session 
-   6. flow shouldn't start the moment user click start, it should start a countdown, or wait for user uttering "ready"
+   6. flow shouldn't start the moment user click start, wait for user uttering "ready"
 4. breaths: each pose specifies how many breaths should the user hold the pose. that is the total number of breaths
    1. user can increase/decrease inhale/exhale lengths by voice command, they can also mute this marker
    2. there should exist a breath count helper, i'm not sure yet about the marker, the marker can be one of these
