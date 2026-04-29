@@ -25,6 +25,8 @@ const gemmaRuntime = {
   processor: null,
   model: null,
   progressPercent: -1,
+  stage: 'idle',
+  debugEvents: [],
   conversationStatus: 'idle',
   turnDetectionActive: false,
   autoRunOnTurnEnd: true,
@@ -100,6 +102,32 @@ function setGemmaStatus(status, immediate = false) {
   scheduleRender();
 }
 
+function pushGemmaDebug(event, details = '') {
+  const line = `${new Date().toLocaleTimeString()} · ${event}${details ? ` · ${details}` : ''}`;
+  gemmaRuntime.debugEvents = [line, ...gemmaRuntime.debugEvents].slice(0, 30);
+}
+
+function gemmaDebugDump() {
+  return JSON.stringify(
+    {
+      modelId: gemmaRuntime.modelId,
+      device: gemmaRuntime.device,
+      dtype: gemmaRuntime.dtype,
+      status: gemmaRuntime.status,
+      stage: gemmaRuntime.stage,
+      progressPercent: gemmaRuntime.progressPercent,
+      loading: gemmaRuntime.loading,
+      generating: gemmaRuntime.generating,
+      hasProcessor: Boolean(gemmaRuntime.processor),
+      hasModel: Boolean(gemmaRuntime.model),
+      conversationStatus: gemmaRuntime.conversationStatus,
+      events: gemmaRuntime.debugEvents,
+    },
+    null,
+    2,
+  );
+}
+
 function setKokoroStatus(status, immediate = false) {
   if (kokoroRuntime.status === status) {
     return;
@@ -119,17 +147,26 @@ async function initGemmaModel() {
     return;
   }
 
+  gemmaRuntime.model = null;
+  gemmaRuntime.processor = null;
   gemmaRuntime.loading = true;
   gemmaRuntime.progressPercent = -1;
-  setGemmaStatus('initializing...');
+  gemmaRuntime.stage = 'initializing';
+  setGemmaStatus('initializing... this may take several minutes and multiple GB download');
+  pushGemmaDebug('init_start', `${gemmaRuntime.modelId} (${gemmaRuntime.device}/${gemmaRuntime.dtype})`);
 
   try {
     const { AutoProcessor, Gemma4ForConditionalGeneration } = await import('@huggingface/transformers');
     const preferredDevice = gemmaRuntime.device === 'auto' ? 'webgpu' : gemmaRuntime.device;
 
+    gemmaRuntime.stage = 'loading_processor';
+    setGemmaStatus('downloading processor files...');
     gemmaRuntime.processor = await AutoProcessor.from_pretrained(gemmaRuntime.modelId);
+    pushGemmaDebug('processor_ready');
 
     try {
+      gemmaRuntime.stage = `loading_model_${preferredDevice}`;
+      setGemmaStatus(`downloading model files (${preferredDevice})...`);
       gemmaRuntime.model = await Gemma4ForConditionalGeneration.from_pretrained(gemmaRuntime.modelId, {
         dtype: gemmaRuntime.dtype,
         device: preferredDevice,
@@ -138,15 +175,20 @@ async function initGemmaModel() {
             const nextProgress = Math.max(gemmaRuntime.progressPercent, Math.round(info.progress ?? 0));
             if (nextProgress > gemmaRuntime.progressPercent) {
               gemmaRuntime.progressPercent = nextProgress;
-              setGemmaStatus(`initializing... ${nextProgress}%`);
+              setGemmaStatus(`downloading model files... ${nextProgress}%`);
+              if (nextProgress % 10 === 0) {
+                pushGemmaDebug('download_progress', `${nextProgress}%`);
+              }
             }
           }
         },
       });
     } catch (primaryError) {
       if (gemmaRuntime.device === 'auto') {
+        pushGemmaDebug('webgpu_failed', primaryError?.message || 'unknown');
         setGemmaStatus('webgpu failed, retrying with wasm...');
         gemmaRuntime.progressPercent = -1;
+        gemmaRuntime.stage = 'loading_model_wasm';
         gemmaRuntime.model = await Gemma4ForConditionalGeneration.from_pretrained(gemmaRuntime.modelId, {
           dtype: 'q4',
           device: 'wasm',
@@ -155,7 +197,10 @@ async function initGemmaModel() {
               const nextProgress = Math.max(gemmaRuntime.progressPercent, Math.round(info.progress ?? 0));
               if (nextProgress > gemmaRuntime.progressPercent) {
                 gemmaRuntime.progressPercent = nextProgress;
-                setGemmaStatus(`initializing... ${nextProgress}%`);
+                setGemmaStatus(`downloading model files (wasm)... ${nextProgress}%`);
+                if (nextProgress % 10 === 0) {
+                  pushGemmaDebug('download_progress_wasm', `${nextProgress}%`);
+                }
               }
             }
           },
@@ -165,8 +210,12 @@ async function initGemmaModel() {
       }
     }
 
+    gemmaRuntime.stage = 'ready';
+    pushGemmaDebug('init_ready');
     setGemmaStatus('ready', true);
   } catch (error) {
+    gemmaRuntime.stage = 'failed';
+    pushGemmaDebug('init_failed', error.message);
     setGemmaStatus(`failed: ${error.message}`, true);
   } finally {
     gemmaRuntime.loading = false;
@@ -175,8 +224,15 @@ async function initGemmaModel() {
 }
 
 async function runGemmaPrompt() {
+  if (gemmaRuntime.loading) {
+    setGemmaStatus('Gemma is still downloading/loading. Please wait until status is ready.');
+    pushGemmaDebug('run_blocked', 'loading_in_progress');
+    return;
+  }
+
   if (!gemmaRuntime.model || !gemmaRuntime.processor) {
-    setGemmaStatus('initialize Gemma first');
+    setGemmaStatus('initialize Gemma first (model not ready yet)');
+    pushGemmaDebug('run_blocked', 'model_or_processor_missing');
     return;
   }
 
@@ -185,6 +241,8 @@ async function runGemmaPrompt() {
   }
 
   gemmaRuntime.generating = true;
+  gemmaRuntime.stage = 'generating';
+  pushGemmaDebug('run_start');
   setGemmaStatus('generating...', true);
 
   try {
@@ -219,9 +277,13 @@ async function runGemmaPrompt() {
     });
 
     gemmaRuntime.output = (decoded?.[0] ?? '').trim();
+    gemmaRuntime.stage = 'ready';
+    pushGemmaDebug('run_success', `${gemmaRuntime.output.length} chars`);
     setGemmaStatus('ready', true);
     return { ok: true, text: gemmaRuntime.output };
   } catch (error) {
+    gemmaRuntime.stage = 'failed';
+    pushGemmaDebug('run_failed', error.message);
     setGemmaStatus(`generation failed: ${error.message}`, true);
     return { ok: false, reason: error.message };
   } finally {
@@ -473,6 +535,19 @@ function onAppClick(event) {
 
   if (event.target.id === 'runGemma') {
     runGemmaPrompt();
+    return;
+  }
+
+  if (event.target.id === 'copyGemmaDebug') {
+    const dump = gemmaDebugDump();
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(dump).then(
+        () => setGemmaStatus('debug copied to clipboard', true),
+        () => setGemmaStatus('copy failed; use the debug text box', true),
+      );
+    } else {
+      setGemmaStatus('clipboard API unavailable; copy from debug text box', true);
+    }
     return;
   }
 
@@ -780,12 +855,16 @@ function render(state) {
           </label>
 
           <div class="controls top-gap">
-            <button id="initGemma" type="button">Init Gemma</button>
-            <button id="runGemma" type="button">Run Prompt</button>
+            <button id="initGemma" type="button" ${gemmaRuntime.loading ? 'disabled' : ''}>Init Gemma</button>
+            <button id="runGemma" type="button" ${gemmaRuntime.loading || gemmaRuntime.generating ? 'disabled' : ''}>Run Prompt</button>
             <button id="startConversation" type="button">Start Conversation</button>
             <button id="stopConversation" type="button">Stop Conversation</button>
+            <button id="copyGemmaDebug" type="button">Copy Gemma Debug</button>
           </div>
           <p class="intent-result"><strong>Status:</strong> ${escapeHtml(gemmaRuntime.status)}</p>
+          <p class="intent-result"><strong>Stage:</strong> ${escapeHtml(gemmaRuntime.stage)}</p>
+          ${gemmaRuntime.loading ? '<p class="small-note">Model is still downloading/loading in background. First run can take several minutes.</p>' : ''}
+          <textarea class="intent-json" rows="8" spellcheck="false" readonly>${escapeHtml(gemmaDebugDump())}</textarea>
           <p class="intent-result"><strong>Conversation:</strong> ${escapeHtml(gemmaRuntime.conversationStatus)}</p>
           <p class="model-output">${escapeHtml(gemmaRuntime.output || 'No output yet.')}</p>
         </div>

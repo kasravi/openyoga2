@@ -69,6 +69,7 @@ export function initAppPage(app) {
       loading: false,
       ready: false,
       status: 'idle',
+      progressPercent: -1,
       modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
       dtype: 'q4f16',
       device: 'auto',
@@ -814,26 +815,62 @@ export function initAppPage(app) {
     }
 
     ui.gemma.loading = true;
-    ui.gemma.status = 'initializing';
+    ui.gemma.progressPercent = -1;
+    ui.gemma.status = 'initializing (this can take several minutes)';
     render();
 
     try {
       const { AutoProcessor, Gemma4ForConditionalGeneration } = await import('@huggingface/transformers');
+      ui.gemma.status = 'downloading processor files...';
+      render();
       ui.gemma.processor = await AutoProcessor.from_pretrained(ui.gemma.modelId);
 
       const preferred = ui.gemma.device === 'auto' ? 'webgpu' : ui.gemma.device;
       try {
+        ui.gemma.status = `downloading model files (${preferred})...`;
+        render();
         ui.gemma.model = await Gemma4ForConditionalGeneration.from_pretrained(ui.gemma.modelId, {
           dtype: ui.gemma.dtype,
           device: preferred,
+          progress_callback: (info) => {
+            if (info?.status === 'progress' || info?.status === 'progress_total') {
+              const nextProgress = Math.max(ui.gemma.progressPercent, Math.round(info.progress ?? 0));
+              if (nextProgress > ui.gemma.progressPercent) {
+                ui.gemma.progressPercent = nextProgress;
+                ui.gemma.status = `downloading model files... ${nextProgress}%`;
+                if (ui.startup.running) {
+                  ui.startup.progress = Math.max(ui.startup.progress, Math.min(90, 55 + Math.round(nextProgress * 0.35)));
+                  ui.startup.status = `Preparing Gemma model... ${nextProgress}% (large download)`;
+                }
+                render();
+              }
+            }
+          },
         });
       } catch (error) {
         if (ui.gemma.device !== 'auto') {
           throw error;
         }
+        ui.gemma.progressPercent = -1;
+        ui.gemma.status = 'webgpu failed, retrying with wasm...';
+        render();
         ui.gemma.model = await Gemma4ForConditionalGeneration.from_pretrained(ui.gemma.modelId, {
           dtype: 'q4',
           device: 'wasm',
+          progress_callback: (info) => {
+            if (info?.status === 'progress' || info?.status === 'progress_total') {
+              const nextProgress = Math.max(ui.gemma.progressPercent, Math.round(info.progress ?? 0));
+              if (nextProgress > ui.gemma.progressPercent) {
+                ui.gemma.progressPercent = nextProgress;
+                ui.gemma.status = `downloading model files (wasm)... ${nextProgress}%`;
+                if (ui.startup.running) {
+                  ui.startup.progress = Math.max(ui.startup.progress, Math.min(90, 55 + Math.round(nextProgress * 0.35)));
+                  ui.startup.status = `Preparing Gemma model... ${nextProgress}% (large download)`;
+                }
+                render();
+              }
+            }
+          },
         });
       }
 
@@ -1232,7 +1269,7 @@ export function initAppPage(app) {
 
     if (ui.interactive) {
       ui.startup.progress = 55;
-      ui.startup.status = 'Preparing Gemma model...';
+      ui.startup.status = 'Preparing Gemma model... this may take several minutes on first run.';
       render();
 
       const ok = await initGemmaIfNeeded();
