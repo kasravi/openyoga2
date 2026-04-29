@@ -19,6 +19,11 @@ export function initAppPage(app) {
     interactive: false,
     alwaysListening: false,
     detailedInstruction: false,
+    startup: {
+      running: false,
+      progress: 0,
+      status: 'idle',
+    },
     backgroundMusic: true,
     breathMarker: true,
     startSlideBreathsRemaining: 4,
@@ -95,6 +100,8 @@ export function initAppPage(app) {
       lastFlowId: '',
       total: 0,
       completed: 0,
+      skipped: 0,
+      incomplete: false,
       memory: new Map(),
     },
   };
@@ -410,6 +417,8 @@ export function initAppPage(app) {
     const all = [...new Set([...base, ...poseLines].filter(Boolean))].slice(0, 60);
     ui.prewarm.total = all.length;
     ui.prewarm.completed = 0;
+    ui.prewarm.skipped = 0;
+    ui.prewarm.incomplete = false;
     ui.prewarm.status = `warming ${flow.name} (0/${ui.prewarm.total})`;
     render();
 
@@ -435,8 +444,12 @@ export function initAppPage(app) {
       }
 
       ui.prewarm.lastFlowId = flow.id;
+      ui.prewarm.skipped = skipped;
+      ui.prewarm.incomplete = skipped > 0;
       const suffix = skipped > 0 ? `, skipped ${skipped}` : '';
-      ui.prewarm.status = `ready ${flow.name} (${ui.prewarm.completed}/${ui.prewarm.total}${suffix})`;
+      ui.prewarm.status = skipped > 0
+        ? `incomplete ${flow.name} (${ui.prewarm.completed}/${ui.prewarm.total}${suffix})`
+        : `ready ${flow.name} (${ui.prewarm.completed}/${ui.prewarm.total})`;
       pushDebug('prewarm_done', `${flow.name}${suffix}`);
     } finally {
       ui.prewarm.running = false;
@@ -708,12 +721,17 @@ export function initAppPage(app) {
       }
     };
 
-    const playedWithKokoro = await playWithKokoro(text, speechTokenAtStart);
+    const inActiveSession = store.getState().session.status === 'active';
+    const browserOnlyMode = inActiveSession && ui.prewarm.incomplete;
+    const playedWithKokoro = browserOnlyMode ? false : await playWithKokoro(text, speechTokenAtStart);
     if (speechTokenAtStart !== ui.speechToken) {
       settle();
       return;
     }
     if (!playedWithKokoro) {
+      if (browserOnlyMode) {
+        pushDebug('tts_mode', 'browser_only_incomplete_pack');
+      }
       const fallbackOk = await playWithBrowserTTS(text);
       if (fallbackOk) {
         pushDebug('tts_fallback', 'browser_speechsynthesis');
@@ -1170,6 +1188,22 @@ export function initAppPage(app) {
   }
 
   async function startFlow() {
+    if (ui.startup.running) {
+      return;
+    }
+
+    if (ui.prewarm.running) {
+      ui.startup.status = 'Voice pack is still downloading. Please wait.';
+      ui.startup.progress = 0;
+      render();
+      return;
+    }
+
+    ui.startup.running = true;
+    ui.startup.progress = 5;
+    ui.startup.status = 'Initializing session...';
+    render();
+
     const state = store.getState();
     if (!ui.selectedFlowId) {
       ui.selectedFlowId = state.catalog.flows[0]?.id;
@@ -1177,16 +1211,51 @@ export function initAppPage(app) {
 
     syncOptionState();
     store.dispatch({ type: 'SELECT_FLOW', payload: { flowId: ui.selectedFlowId } });
-    store.dispatch({ type: 'START_SESSION' });
+    const startResult = store.dispatch({ type: 'START_SESSION' });
+    if (!startResult.ok) {
+      ui.startup.running = false;
+      ui.startup.progress = 0;
+      ui.startup.status = `Cannot start: ${startResult.reason}`;
+      render();
+      return;
+    }
+
+    ui.startup.progress = 20;
+    ui.startup.status = 'Preparing voice model (Kokoro)...';
+    render();
+
+    const kokoroReady = await ensureKokoroReady();
+    if (!kokoroReady) {
+      ui.prewarm.incomplete = true;
+      pushDebug('kokoro_unavailable', 'using browser fallback voice');
+    }
 
     if (ui.interactive) {
+      ui.startup.progress = 55;
+      ui.startup.status = 'Preparing Gemma model...';
+      render();
+
       const ok = await initGemmaIfNeeded();
       if (!ok) {
+        store.dispatch({ type: 'TERMINATE_SESSION' });
+        ui.startup.running = false;
+        ui.startup.progress = 0;
+        ui.startup.status = 'Gemma failed to load. Check model settings.';
+        ui.view = 'landing';
+        render();
         return;
       }
+
+      ui.startup.progress = 85;
+      ui.startup.status = 'Starting microphone and conversation...';
+      render();
+
       store.dispatch({ type: 'MODELS_READY' });
       startTurnDetection();
     } else {
+      ui.startup.progress = 90;
+      ui.startup.status = 'Finalizing...';
+      render();
       store.dispatch({ type: 'MODELS_READY' });
     }
 
@@ -1202,6 +1271,10 @@ export function initAppPage(app) {
     if (!ui.interactive) {
       beginStartSlideCountdown();
     }
+
+    ui.startup.running = false;
+    ui.startup.progress = 100;
+    ui.startup.status = 'Session started.';
 
     render();
   }
@@ -1371,7 +1444,9 @@ export function initAppPage(app) {
           <button id="downloadVoicePack" ${ui.prewarm.running ? 'disabled' : ''}>Download Flow Voice Pack</button>
           <p>${ui.prewarm.status}</p>
           <progress max="${Math.max(1, ui.prewarm.total)}" value="${ui.prewarm.completed}"></progress>
-          <button id="startFlow" class="start-btn">Start</button>
+          ${ui.prewarm.incomplete ? '<p class="status-line">Voice pack incomplete. Session voice will use browser fallback for consistency.</p>' : ''}
+          ${ui.startup.running || ui.startup.status !== 'idle' ? `<p class="status-line">${ui.startup.status}</p><progress max="100" value="${Math.max(0, Math.min(100, ui.startup.progress))}"></progress>` : ''}
+          <button id="startFlow" class="start-btn" ${ui.prewarm.running || ui.startup.running ? 'disabled' : ''}>${ui.startup.running ? 'Starting…' : 'Start'}</button>
         </div>
 
         <button id="addFlow" class="fab" aria-label="Create flow">+</button>
@@ -1450,6 +1525,10 @@ export function initAppPage(app) {
     ui.prewarm.status = 'idle';
     ui.prewarm.total = 0;
     ui.prewarm.completed = 0;
+    ui.prewarm.skipped = 0;
+    ui.prewarm.incomplete = false;
+    ui.startup.status = 'idle';
+    ui.startup.progress = 0;
     persistConfigChoices();
     render();
     return true;
@@ -1618,6 +1697,8 @@ export function initAppPage(app) {
       ui.prewarm.status = 'idle';
       ui.prewarm.total = 0;
       ui.prewarm.completed = 0;
+      ui.prewarm.skipped = 0;
+      ui.prewarm.incomplete = false;
       persistConfigChoices();
       render();
       return;
@@ -1632,6 +1713,8 @@ export function initAppPage(app) {
       ui.prewarm.status = 'idle';
       ui.prewarm.total = 0;
       ui.prewarm.completed = 0;
+      ui.prewarm.skipped = 0;
+      ui.prewarm.incomplete = false;
       persistConfigChoices();
       render();
       return;
@@ -1643,6 +1726,8 @@ export function initAppPage(app) {
       ui.prewarm.status = 'idle';
       ui.prewarm.total = 0;
       ui.prewarm.completed = 0;
+      ui.prewarm.skipped = 0;
+      ui.prewarm.incomplete = false;
       persistConfigChoices();
       render();
     }
@@ -1667,6 +1752,8 @@ export function initAppPage(app) {
       ui.prewarm.status = 'idle';
       ui.prewarm.total = 0;
       ui.prewarm.completed = 0;
+      ui.prewarm.skipped = 0;
+      ui.prewarm.incomplete = false;
       persistConfigChoices();
       return;
     }
@@ -1677,6 +1764,8 @@ export function initAppPage(app) {
       ui.prewarm.status = 'idle';
       ui.prewarm.total = 0;
       ui.prewarm.completed = 0;
+      ui.prewarm.skipped = 0;
+      ui.prewarm.incomplete = false;
       persistConfigChoices();
     }
   }

@@ -5,6 +5,7 @@ import { initAppPage } from './appPage.js';
 const app = document.querySelector('#app');
 const isTestRoute =
   window.location.pathname === '/test' ||
+  window.location.pathname.endsWith('/test') ||
   window.location.pathname.endsWith('/test/') ||
   window.location.hash === '#/test';
 
